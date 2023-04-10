@@ -1,0 +1,61 @@
+# Project Details
+#  - Food For All Foodbank
+#  - Enables Dalhousie students to make an appointment with the Dalhousie Foodbank
+#  - This template is to deploy the front end of the application
+# 
+# Developed and Designed by 
+#  - Neha Dadarwala (B00916174)
+#  - neha.dadarwala@dal.ca
+#
+# Deployed following services
+#  - AWS ElasticBeanstalk
+
+Resources:
+  FoodbankApplication:
+    Type: "AWS::ElasticBeanstalk::Application"
+    Properties:
+      ApplicationName: FoodForAll
+      Description: Eventify ElasticBeanstalk Application
+      
+  ApplicationVersion:
+    Type: "AWS::ElasticBeanstalk::ApplicationVersion"
+    Properties:
+      ApplicationName: !Ref FoodbankApplication
+      Description: String
+      SourceBundle:
+        S3Bucket: resources-cf
+        S3Key: foodbank-frontend.zip
+
+  ProdEnvironment:
+    Type: 'AWS::ElasticBeanstalk::Environment'
+    Properties:
+      EnvironmentName: 'MyReactEnvironment'
+      ApplicationName: !Ref FoodbankApplication
+      SolutionStackName: '64bit Amazon Linux 2 v5.8.0 running Node.js 18'
+      VersionLabel: !Ref ApplicationVersion
+      Tier:
+        Name: WebServer
+        Type: Standard
+        Version: "1.0"
+      OptionSettings:
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'InstanceType'
+          Value: 't2.micro'
+        - Namespace: 'aws:autoscaling:launchconfiguration'
+          OptionName: 'IamInstanceProfile'
+          Value: aws-elasticbeanstalk-ec2-role
+        - Namespace: 'aws:elasticbeanstalk:environment'
+          OptionName: 'EnvironmentType'
+          Value: 'LoadBalanced'
+        - Namespace: 'aws:elasticbeanstalk:environment'
+          OptionName: 'LoadBalancerType'
+          Value: 'application'
+      Tags:
+        - Key: 'Name'
+          Value: 'FoodForAll'
+
+Outputs:
+  PublicAlbDnsName:
+    Description: ElasticBeanstalk APP URL
+    Value: !GetAtt 'ProdEnvironment.EndpointURL'
+

@@ -1,0 +1,1300 @@
+# Project Details
+#  - Food For All Foodbank
+#  - Enables Dalhousie students to make an appointment with the Dalhousie Foodbank
+# 
+# Developed and Designed by 
+#  - Neha Dadarwala (B00916174)
+#  - neha.dadarwala@dal.ca
+#
+# Deployed following services
+#  - AWS UserPool
+#  - AWS UserPoolClient
+#  - AWS SNS Topic
+#  - AWS 3 Lambda Functions 
+#  - AWS Permissions to invoke Lambda
+#  - AWS API Gateway
+#  - AWS Resources and Methods
+#
+# References Used
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cognito-userpool.html
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cognito-userpoolclient.html
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-sns-topic.html
+#  - https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-restapi.html
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-lambda-permission.html
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-deployment.html
+#  - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-method.html
+#  - https://docs.aws.amazon.com/apigateway/latest/developerguide/models-mappings.html
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Food For All Template
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  CognitoName:
+    Type: String
+    Default: FoodBankAdmins
+  ApplicationBaseName:
+    Type: String
+    Default: foodForAll
+
+Resources:
+  MyPool:
+    Type: "AWS::Cognito::UserPool"
+    Properties:
+      UserPoolName: !Ref CognitoName
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: false
+          RequireSymbols: false
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: sub
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: false
+          Required: true
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "2048"
+        - Name: name
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "0"
+            MaxLength: "2048"
+        - Name: email
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: true
+          StringAttributeConstraints:
+            MinLength: "0"
+            MaxLength: "2048"
+        - Name: email_verified
+          AttributeDataType: Boolean
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+        - Name: phone_number
+          AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "0"
+            MaxLength: "2048"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      MfaConfiguration: "OFF"
+      UserPoolTags:
+        Name: !Ref CognitoName
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      UsernameConfiguration:
+        CaseSensitive: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Priority: 1
+            Name: verified_email
+
+  UserPoolAppClient:
+    Type: "AWS::Cognito::UserPoolClient"
+    Properties:
+      ClientName: !Join ["-", [!Ref CognitoName, "app-client"]]
+      GenerateSecret: false
+      UserPoolId: !Ref MyPool
+      RefreshTokenValidity: 30
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+      AllowedOAuthFlowsUserPoolClient: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+
+  MySNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: "foodbank-users"
+      TopicName: "foodbank-users"
+
+  CognitoFunctions:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: !Join ["", [!Ref ApplicationBaseName, "Cognito"]]
+      CodeUri: s3://foodbank-forforall/cognitoFunctions-b270aed5-3205-42e6-82fe-b790201c5ea1.zip
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      Description: ''
+      MemorySize: 128
+      Timeout: 3
+      Role: >-
+        arn:aws:iam::973144975968:role/LabRole
+      Environment:
+        Variables:
+          COGNITO_REGION_NAME: us-east-1
+          COGNITO_USER_CLIENT_ID: !Ref UserPoolAppClient
+          USER_POOL_ID: !Ref MyPool
+ 
+  FoodBankOperations:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: !Join ["", [!Ref ApplicationBaseName, "Operations"]]
+      CodeUri: s3://foodbank-forforall/foodBankOperations-ee029d89-e615-488c-acdd-defad1ed4583.zip
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      Description: ''
+      MemorySize: 128
+      Timeout: 3
+      Role: >-
+        arn:aws:iam::973144975968:role/LabRole
+      Environment:
+        Variables:
+          TOPIC_NAME: !Ref MySNSTopic
+
+  AdminOperations:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: !Join ["", [!Ref ApplicationBaseName, "AdminOperations"]]
+      CodeUri: s3://foodbank-forforall/adminFunctionalities-c033a031-9431-4179-bcb2-e5c67e67fee0.zip
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      Description: ''
+      MemorySize: 128
+      Timeout: 3
+      Role: >-
+        arn:aws:iam::973144975968:role/LabRole
+      Environment:
+        Variables:
+          TOPIC_NAME: !Ref MySNSTopic
+
+  FoodbankApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: Foobank API
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Description: API used for foodbank requests
+      FailOnWarnings: true
+
+  LambdaPermissionCognito:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:invokeFunction'
+      FunctionName:
+        'Fn::GetAtt':
+          - CognitoFunctions
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        'Fn::Join':
+          - ''
+          - - 'arn:aws:execute-api:'
+            - Ref: 'AWS::Region'
+            - ':'
+            - Ref: 'AWS::AccountId'
+            - ':'
+            - Ref: FoodbankApi
+            - /*
+
+  LambdaPermissionOperations:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:invokeFunction'
+      FunctionName:
+        'Fn::GetAtt':
+          - FoodBankOperations
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        'Fn::Join':
+          - ''
+          - - 'arn:aws:execute-api:'
+            - Ref: 'AWS::Region'
+            - ':'
+            - Ref: 'AWS::AccountId'
+            - ':'
+            - Ref: FoodbankApi
+            - /*
+  
+  LambdaPermissionAdminOperations:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:invokeFunction'
+      FunctionName:
+        'Fn::GetAtt':
+          - AdminOperations
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        'Fn::Join':
+          - ''
+          - - 'arn:aws:execute-api:'
+            - Ref: 'AWS::Region'
+            - ':'
+            - Ref: 'AWS::AccountId'
+            - ':'
+            - Ref: FoodbankApi
+            - /*
+
+  FoodbankApiStage:
+    Type: 'AWS::ApiGateway::Stage'
+    DependsOn:
+      - ApiDeployment
+    Properties:
+      DeploymentId:
+        Ref: ApiDeployment
+      RestApiId:
+        Ref: FoodbankApi
+      StageName: prod
+  
+  ApiDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    DependsOn:
+      - loginOption
+      - loginPost
+      - newPasswordOption
+      - newPasswordPost
+      - makeappointmentOption
+      - makeappointmentPost
+      - deleteappointmentOption
+      - deleteappointmentPost
+      - volunterOption
+      - volunterPost
+      - viewappointmentsOption
+      - viewappointmentsGet
+      - viewvolunteersOption
+      - viewvolunteersGet
+      - sendnotificationsOption
+      - sendnotificationsPost 
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+    
+  loginResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: login
+
+  loginOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: loginResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  loginPost:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId:
+        Ref: loginResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - CognitoFunctions
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  newPasswordResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: newPassword
+
+  newPasswordOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: newPasswordResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  newPasswordPost:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId:
+        Ref: newPasswordResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - CognitoFunctions
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  makeappointmentResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: makeappointment
+
+  makeappointmentOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: makeappointmentResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  makeappointmentPost:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId:
+        Ref: makeappointmentResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - FoodBankOperations
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  deleteappointmentResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: deleteappointment
+
+  deleteappointmentOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: deleteappointmentResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  deleteappointmentPost:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId:
+        Ref: deleteappointmentResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - FoodBankOperations
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+  
+  volunterResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: volunter
+
+  volunterOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: volunterResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  volunterPost:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId:
+        Ref: volunterResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - FoodBankOperations
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+  
+  viewappointmentsResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: viewappointments
+
+  viewappointmentsOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: viewappointmentsResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  viewappointmentsGet:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId:
+        Ref: viewappointmentsResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - AdminOperations
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  viewvolunteersResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: viewvolunteers
+
+  viewvolunteersOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: viewvolunteersResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  viewvolunteersGet:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId:
+        Ref: viewvolunteersResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - AdminOperations
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  sendnotificationsResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId:
+        Ref: FoodbankApi
+      ParentId:
+        'Fn::GetAtt':
+          - FoodbankApi
+          - RootResourceId
+      PathPart: sendnotifications
+
+  sendnotificationsOption:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId:
+        Ref: FoodbankApi
+      ResourceId:
+        Ref: sendnotificationsResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'OPTIONS'"
+            "method.response.header.Access-Control-Allow-Origin": "'*'"
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+  sendnotificationsPost:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId:
+        Ref: sendnotificationsResource
+      RestApiId:
+        Ref: FoodbankApi
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Uri:
+          'Fn::Join':
+            - ''
+            - - 'arn:aws:apigateway:'
+              - Ref: 'AWS::Region'
+              - ':lambda:path/2015-03-31/functions/'
+              - 'Fn::GetAtt':
+                  - AdminOperations
+                  - Arn
+              - /invocations
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers" : "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            "method.response.header.Access-Control-Allow-Methods": "'POST'"
+            "method.response.header.Access-Control-Allow-Origin" : "'*'"
+        
+          ResponseTemplates:
+            application/json: ''
+        RequestTemplates:
+          application/json: '#set($allParams = $input.params())
+                    {
+                    "body-json" : $input.json("$"),
+                    "params" : {
+                    #foreach($type in $allParams.keySet())
+                        #set($params = $allParams.get($type))
+                    "$type" : {
+                        #foreach($paramName in $params.keySet())
+                        "$paramName" : "$util.escapeJavaScript($params.get($paramName))"
+                            #if($foreach.hasNext),#end
+                        #end
+                    }
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "stage-variables" : {
+                    #foreach($key in $stageVariables.keySet())
+                    "$key" : "$util.escapeJavaScript($stageVariables.get($key))"
+                        #if($foreach.hasNext),#end
+                    #end
+                    },
+                    "context" : {
+                        "account-id" : "$context.identity.accountId",
+                        "api-id" : "$context.apiId",
+                        "api-key" : "$context.identity.apiKey",
+                        "authorizer-principal-id" : "$context.authorizer.principalId",
+                        "caller" : "$context.identity.caller",
+                        "cognito-authentication-provider" : "$context.identity.cognitoAuthenticationProvider",
+                        "cognito-authentication-type" : "$context.identity.cognitoAuthenticationType",
+                        "cognito-identity-id" : "$context.identity.cognitoIdentityId",
+                        "cognito-identity-pool-id" : "$context.identity.cognitoIdentityPoolId",
+                        "http-method" : "$context.httpMethod",
+                        "stage" : "$context.stage",
+                        "source-ip" : "$context.identity.sourceIp",
+                        "user" : "$context.identity.user",
+                        "user-agent" : "$context.identity.userAgent",
+                        "user-arn" : "$context.identity.userArn",
+                        "request-id" : "$context.requestId",
+                        "resource-id" : "$context.resourceId",
+                        "resource-path" : "$context.resourcePath"
+                        }
+                    }'
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            "method.response.header.Access-Control-Allow-Headers": false
+            "method.response.header.Access-Control-Allow-Methods": false
+            "method.response.header.Access-Control-Allow-Origin": false
+
+Outputs:
+  CognitoUserPool:
+    Description: User Pool
+    Value: !Ref MyPool
+  CognitoUserPoolAppClient:
+    Description: User App Client
+    Value: !Ref UserPoolAppClient
+  ProdDataEndpoint:
+    Description: "API Prod stage endpoint"
+    Value: !Sub "https://${FoodbankApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
