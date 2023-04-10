@@ -1,0 +1,1 @@
+export const apiUrl = "https://u4bwwnafic.execute-api.us-east-1.amazonaws.com/prod/";

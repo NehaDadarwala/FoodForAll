@@ -1,0 +1,26 @@
+.NavBar{
+    height: 80px;
+    justify-content: center;
+    vertical-align:middle;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 100px;
+    padding-right: 100px;
+    background-color: skyblue;
+}
+
+.NavBarHeader{
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+
+.NavBarItems{
+    width: 600px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-around;
+}

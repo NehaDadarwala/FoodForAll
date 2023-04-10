@@ -1,0 +1,21 @@
+.AdminLogin{
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    position: absolute;
+}
+
+.AdminLoginForm{
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    /* border: 2px solid red; */
+    padding: 40px 80px 50px 80px;
+    box-shadow: 0px 0px 15px 8px rgba(0,0,0,0.1);
+    border-radius: 10px;
+}
+
+.AdminLoginFormInputs{
+    margin-top: 20px !important;
+    /* margin-bottom: 20px; */
+}
